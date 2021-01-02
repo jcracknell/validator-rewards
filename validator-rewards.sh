@@ -117,19 +117,22 @@ while true; do
   # recent epoch we have data for each validator or its activation epoch
   epoch=$(
     echo '
-      select coalesce(min("epoch_index"), 0) from (
-        select coalesce(max("vr"."epoch_index") + 1, "v"."active_epoch") as "epoch_index"
+      select min("epoch") from (
+        select coalesce("m"."max_epoch" + 1, "v"."active_epoch") as "epoch"
         from "Validator" as "v"
-        left join "ValidatorReward" as "vr" on "vr"."validator_index" = "v"."index"
-        group by "v"."index", "v"."active_epoch"
+        left join (
+          select "r"."validator_index", max("r"."epoch_index") as "max_epoch"
+          from "ValidatorReward" as "r"
+          group by "r"."validator_index"
+        ) as "m" on "m"."validator_index" = "v"."index"
+        where "m"."max_epoch" is null or ("v"."active_epoch" <= "m"."max_epoch" and "m"."max_epoch" + 1 <= "v"."exit_epoch")
       )
     ' | sqlite3 "$DBFILE"
   )
 
 
-  if [ $epoch -ge $lastEpoch ]; then
-    break
-  fi
+  [ -z "$epoch" ] && break
+  [ $epoch -ge $lastEpoch ] && break
 
   rewardSlot=$((32 * ($epoch + 1)))
   epochStart=$(($GENESIS_TIME + 12 * 32 * $epoch))
@@ -161,7 +164,7 @@ while true; do
       join "Validator" as "v" on "v"."index" = "data"."validator_index"
       left join "ValidatorReward" as "last"
         on "last"."epoch_index" = '$epoch' - 1 and "last"."validator_index" = "data"."validator_index"
-    where "v"."active_epoch" <= '$epoch'
+    where "v"."active_epoch" <= '$epoch' and '$epoch' <= "v"."exit_epoch"
     on conflict ("epoch_index", "validator_index") do update set
       "balance" = "excluded"."balance",
       "reward" = "excluded"."reward"
