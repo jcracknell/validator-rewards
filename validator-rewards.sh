@@ -175,7 +175,6 @@ while true; do
     echo 'vacuum;' | sqlite3 "$DBFILE";
   fi
 
-  epoch=$(($epoch + 1))
   sleep 1
 done
 
