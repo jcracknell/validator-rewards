@@ -83,24 +83,17 @@ echo '
 ' | sqlite3 -bail "$DBFILE"
 
 echo '
-  with "data" ("index", "pubkey", "entry_epoch", "active_epoch", "exit_epoch") as
-    (select * from (values '"$(
-      curl -sSG "$BEACON_NODE/eth/v1/beacon/states/head/validators" -d id="$VALIDATORS" \
-      | jq -r '
-          .data | sort_by(.index | tonumber)
-          | map([
-              .index,
-              ("'"'"'" + .validator.pubkey + "'"'"'"),
-              .validator.activation_eligibility_epoch,
-              .validator.activation_epoch,
-              .validator.exit_epoch
-            ] | "(" + join(", ") + ")")
-          | join(", ")
-        '
-    )"'))
   insert into "Validator" ("index", "pubkey", "entry_epoch", "active_epoch", "exit_epoch")
-  select "data"."index", "data"."pubkey", "data"."entry_epoch", "data"."active_epoch", "data"."exit_epoch"
-  from "data"
+  select
+    cast(json_extract("json"."value", '"'\$.index'"') as integer) as "index",
+    json_extract("json"."value", '"'\$.validator.pubkey'"') as "pubkey",
+    cast(json_extract("json"."value", '"'\$.validator.activation_eligibility_epoch'"') as integer) as "entry_epoch",
+    cast(json_extract("json"."value", '"'\$.validator.activation_epoch'"') as integer) as "active_epoch",
+    cast(json_extract("json"."value", '"'\$.validator.exit_epoch'"') as integer) as "exit_epoch"
+  from json_each('"'$(
+    curl -sSG "$BEACON_NODE/eth/v1/beacon/states/head/validators" -d id="$VALIDATORS" \
+    | sed -r "s/'/''/g"
+  )'"', '"'\$.data'"') as "json"
   where 1 = 1
   on conflict ("index") do update set
     "pubkey" = "excluded"."pubkey",
@@ -148,11 +141,16 @@ while true; do
     values ('$epoch', '$epochStart', '$epochEnd')
     on conflict do nothing;
 
-    with "data" ("validator_index", "balance") as
-      (select * from (values '"$(
-        curl -sSG "$BEACON_NODE/eth/v1/beacon/states/$rewardSlot/validator_balances" -d id="$VALIDATORS" \
-        | jq --raw-output '.data | sort_by(.index | tonumber) | map("(\(.index), \(.balance))") | join(", ")'
-      )"'))
+    with
+      "data" as (
+        select
+          cast(json_extract("json"."value", '"'\$.index'"') as integer) as "validator_index",
+          cast(json_extract("json"."value", '"'\$.balance'"') as integer) as "balance"
+        from json_each('"'$(
+          curl -sSG "$BEACON_NODE/eth/v1/beacon/states/$rewardSlot/validator_balances" -d id="$VALIDATORS" \
+          | sed -r "s/'/''/g"
+        )'"', '"'\$.data'"') as "json"
+      )
     insert into "ValidatorReward" ("epoch_index", "validator_index", "balance", "reward")
     select
       '$epoch' as "epoch_index",
