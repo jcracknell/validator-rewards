@@ -66,6 +66,7 @@ echo '
     "entry_epoch" integer not null,
     "active_epoch" integer not null,
     "exit_epoch" integer not null,
+    "data" text not null,
     constraint "PK_Validator" primary key ("index")
   ) without rowid;
 
@@ -83,13 +84,14 @@ echo '
 ' | sqlite3 -bail "$DBFILE"
 
 echo '
-  insert into "Validator" ("index", "pubkey", "entry_epoch", "active_epoch", "exit_epoch")
+  insert into "Validator" ("index", "pubkey", "entry_epoch", "active_epoch", "exit_epoch", "data")
   select
     cast(json_extract("json"."value", '"'\$.index'"') as integer) as "index",
     json_extract("json"."value", '"'\$.validator.pubkey'"') as "pubkey",
     cast(json_extract("json"."value", '"'\$.validator.activation_eligibility_epoch'"') as integer) as "entry_epoch",
     cast(json_extract("json"."value", '"'\$.validator.activation_epoch'"') as integer) as "active_epoch",
-    cast(json_extract("json"."value", '"'\$.validator.exit_epoch'"') as integer) as "exit_epoch"
+    cast(json_extract("json"."value", '"'\$.validator.exit_epoch'"') as integer) as "exit_epoch",
+    "json"."value" as "data"
   from json_each('"'$(
     curl -sSG "$BEACON_NODE/eth/v1/beacon/states/head/validators" -d id="$VALIDATORS" \
     | sed -r "s/'/''/g"
@@ -99,7 +101,8 @@ echo '
     "pubkey" = "excluded"."pubkey",
     "entry_epoch" = "excluded"."entry_epoch",
     "active_epoch" = "excluded"."active_epoch",
-    "exit_epoch" = "excluded"."exit_epoch"
+    "exit_epoch" = "excluded"."exit_epoch",
+    "data" = "excluded"."data"
   ;
 ' | sqlite3 -bail "$DBFILE"
 
