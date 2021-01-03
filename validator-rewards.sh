@@ -60,38 +60,7 @@ echo "   Database: $DBFILE"
 echo " Validators: $VALIDATORS"
 echo ""
 
-echo '
-  begin transaction;
-
-  create table if not exists "Epoch" (
-    "index" integer not null,
-    "start_time" bigint not null,
-    "end_time" bigint not null,
-    constraint "PK_Epoch" primary key ("index")
-  ) without rowid;
-
-  create table if not exists "Validator" (
-    "index" integer not null,
-    "pubkey" text not null,
-    "status" text not null,
-    "active_epoch" integer not null,
-    "withdrawable_epoch" integer not null,
-    "data" text not null,
-    constraint "PK_Validator" primary key ("index")
-  ) without rowid;
-
-  create table if not exists "ValidatorReward" (
-    "epoch_index" integer not null,
-    "validator_index" integer not null,
-    "balance" bigint not null,
-    "reward" bigint not null,
-    constraint "PK_ValidatorReward" primary key ("epoch_index", "validator_index"),
-    constraint "FK_ValidatorReward_Epoch" foreign key ("epoch_index") references "Epoch" ("index"),
-    constraint "FK_ValidatorReword_Validator" foreign key ("validator_index") references "Validator" ("index")
-  ) without rowid;
-
-  end transaction;
-' | sqlite3 -bail "$DBFILE"
+cat "$(dirname "$0")/validator-rewards.schema.sql" | sqlite3 -bail "$DBFILE"
 
 echo '
   insert into "Validator" ("index", "pubkey", "status", "active_epoch", "withdrawable_epoch", "data")
