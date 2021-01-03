@@ -48,7 +48,17 @@ done
 
 [ -z "$BEACON_NODE" ] && showUsage "No beacon node API url specified."
 [ -z "$DBFILE" ] && showUsage "No db file specified."
+
+if [ -z "$VALIDATORS" -a -f "$DBFILE" ]; then
+  VALIDATORS="$(sqlite3 "$DBFILE" 'select group_concat("index", '"'"','"'"') from "Validator";')"
+fi
+
 [ -z "$VALIDATORS" ] && showUsage "No validators specified."
+
+echo "Beacon node: $BEACON_NODE"
+echo "   Database: $DBFILE"
+echo " Validators: $VALIDATORS"
+echo ""
 
 echo '
   begin transaction;
