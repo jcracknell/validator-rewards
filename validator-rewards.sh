@@ -73,9 +73,9 @@ echo '
   create table if not exists "Validator" (
     "index" integer not null,
     "pubkey" text not null,
-    "entry_epoch" integer not null,
+    "status" text not null,
     "active_epoch" integer not null,
-    "exit_epoch" integer not null,
+    "withdrawable_epoch" integer not null,
     "data" text not null,
     constraint "PK_Validator" primary key ("index")
   ) without rowid;
@@ -94,13 +94,13 @@ echo '
 ' | sqlite3 -bail "$DBFILE"
 
 echo '
-  insert into "Validator" ("index", "pubkey", "entry_epoch", "active_epoch", "exit_epoch", "data")
+  insert into "Validator" ("index", "pubkey", "status", "active_epoch", "withdrawable_epoch", "data")
   select
     cast(json_extract("json"."value", '"'\$.index'"') as integer) as "index",
     json_extract("json"."value", '"'\$.validator.pubkey'"') as "pubkey",
-    cast(json_extract("json"."value", '"'\$.validator.activation_eligibility_epoch'"') as integer) as "entry_epoch",
+    json_extract("json"."value", '"'\$.status'"') as "status",
     cast(json_extract("json"."value", '"'\$.validator.activation_epoch'"') as integer) as "active_epoch",
-    cast(json_extract("json"."value", '"'\$.validator.exit_epoch'"') as integer) as "exit_epoch",
+    cast(json_extract("json"."value", '"'\$.validator.withdrawable_epoch'"') as integer) as "withdrawable_epoch",
     "json"."value" as "data"
   from json_each('"'$(
     curl -sSG "$BEACON_NODE/eth/v1/beacon/states/head/validators" -d id="$VALIDATORS" \
@@ -109,9 +109,9 @@ echo '
   where 1 = 1
   on conflict ("index") do update set
     "pubkey" = "excluded"."pubkey",
-    "entry_epoch" = "excluded"."entry_epoch",
+    "status" = "excluded"."status",
     "active_epoch" = "excluded"."active_epoch",
-    "exit_epoch" = "excluded"."exit_epoch",
+    "withdrawable_epoch" = "excluded"."withdrawable_epoch",
     "data" = "excluded"."data"
   ;
 ' | sqlite3 -bail "$DBFILE"
@@ -121,24 +121,28 @@ while true; do
 
   # Get the next epoch we need to process from the database, the minumum of the most
   # recent epoch we have data for each validator or its activation epoch
-  epoch=$(
-    echo '
-      select min("epoch") from (
-        select coalesce("m"."max_epoch" + 1, "v"."active_epoch") as "epoch"
-        from "Validator" as "v"
-        left join (
-          select "r"."validator_index", max("r"."epoch_index") as "max_epoch"
-          from "ValidatorReward" as "r"
-          group by "r"."validator_index"
-        ) as "m" on "m"."validator_index" = "v"."index"
-        where "m"."max_epoch" is null or ("v"."active_epoch" <= "m"."max_epoch" and "m"."max_epoch" + 1 <= "v"."exit_epoch")
-      )
-    ' | sqlite3 "$DBFILE"
-  )
+  epoch=$(sqlite3 "$DBFILE" '
+    select min("epoch") from (
+      select coalesce("m"."max_epoch" + 1, "v"."active_epoch") as "epoch"
+      from "Validator" as "v"
+      left join (
+        select "r"."validator_index", max("r"."epoch_index") as "max_epoch"
+        from "ValidatorReward" as "r"
+        group by "r"."validator_index"
+      ) as "m" on "m"."validator_index" = "v"."index"
+      where "m"."max_epoch" is null or ("v"."active_epoch" <= "m"."max_epoch" and "m"."max_epoch" + 1 <= "v"."withdrawable_epoch")
+    )
+  ')
 
 
-  [ -z "$epoch" ] && break
-  [ $epoch -ge $lastEpoch ] && break
+  if [ -z "$epoch" ]; then
+    echo "All validators exited."
+    break
+  fi
+  if [ $epoch -ge $lastEpoch ]; then
+    echo "All validators up to date."
+    break
+  fi
 
   rewardSlot=$((32 * ($epoch + 1)))
   epochStart=$(($GENESIS_TIME + 12 * 32 * $epoch))
@@ -175,7 +179,7 @@ while true; do
       join "Validator" as "v" on "v"."index" = "data"."validator_index"
       left join "ValidatorReward" as "last"
         on "last"."epoch_index" = '$epoch' - 1 and "last"."validator_index" = "data"."validator_index"
-    where "v"."active_epoch" <= '$epoch' and '$epoch' <= "v"."exit_epoch"
+    where "v"."active_epoch" <= '$epoch' and '$epoch' <= "v"."withdrawable_epoch"
     on conflict ("epoch_index", "validator_index") do update set
       "balance" = "excluded"."balance",
       "reward" = "excluded"."reward"
