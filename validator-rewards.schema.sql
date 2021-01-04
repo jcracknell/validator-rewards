@@ -27,11 +27,12 @@ create table if not exists "ValidatorReward" (
   constraint "FK_ValidatorReword_Validator" foreign key ("validator_index") references "Validator" ("index")
 ) without rowid;
 
-create view if not exists "DailyReward" as
+drop view if exists "DailyReward";
+create view "DailyReward" as
 select
   "g"."day",
-  sum("g"."reward") / 1000000000.0 as "reward_gwei",
-  sum("g"."reward") as "reward_wei"
+  sum("g"."reward") / 1000000000.0 as "reward_eth",
+  sum("g"."reward") as "reward_gwei"
 from
   (
     select strftime('%Y-%m-%d', "e"."end_time", 'unixepoch', 'localtime') as "day", "vr"."reward"
@@ -41,11 +42,12 @@ from
 group by "g"."day"
 order by "g"."day" asc;
 
-create view if not exists "MonthlyReward" as
+drop view if exists "MonthlyReward";
+create view "MonthlyReward" as
 select
   "g"."month",
-  sum("g"."reward") / 1000000000.0 as "reward_gwei",
-  sum("g"."reward") as "reward_wei"
+  sum("g"."reward") / 1000000000.0 as "reward_eth",
+  sum("g"."reward") as "reward_gwei"
 from
   (
     select strftime('%Y-%m', "e"."end_time", 'unixepoch', 'localtime') as "month", "vr"."reward"
